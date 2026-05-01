@@ -10,6 +10,8 @@ const jwt      = require("jsonwebtoken");
 const cors     = require("cors");
 const crypto   = require("crypto");
 const Razorpay = require("razorpay");
+const nodemailer = require("nodemailer");
+const QRCode   = require("qrcode");
 require("dotenv").config();
 
 const app = express();
@@ -66,11 +68,18 @@ const Booking = mongoose.model("Booking", new mongoose.Schema({
   hotelName: String, checkIn: String, checkOut: String,
   guests: Number, totalPrice: Number, nights: Number,
   roomType: String, roomView: String, roomPrice: Number, roomsBooked: Number,
+  roomNumbers: [String],
   transportMode: String, source: String, destination: String,
   travelDate: String, passengers: Number, seatClass: String, provider: String,
   seatType: String, seatNumber: String, seatPrice: Number, seatsBooked: Number,
   paymentStatus: { type: String, default: "pending" },
   paymentId: String,
+  razorpayOrderId: String,
+  receiptNumber: String,
+  receiptUrl: String,
+  receiptQrCode: String,
+  receiptEmailedAt: Date,
+  receiptEmailStatus: String,
   status:    { type: String, default: "confirmed" }, // confirmed / cancelled
   cancelledAt: Date,
   cancelReason: String,
@@ -129,6 +138,109 @@ async function checkLogin(req, res, next) {
 function checkAdmin(req, res, next) {
   if (req.userRole !== "admin") return res.status(403).json({ message: "Admin only" });
   next();
+}
+
+function frontendBaseUrl() {
+  return process.env.FRONTEND_URL || "http://localhost:5173";
+}
+
+function money(value) {
+  return `Rs ${Number(value || 0).toLocaleString("en-IN")}`;
+}
+
+function bookingTitle(booking) {
+  if (booking?.bookingType === "transport") {
+    return `${booking.transportMode || "Travel"}: ${booking.source || ""} to ${booking.destination || ""}`.trim();
+  }
+  return booking?.hotelName || "Hotel booking";
+}
+
+function assignRoomNumbers(roomId = "classic", roomsBooked = 1) {
+  const floorByRoom = { classic: 1, deluxe: 2, suite: 3, premium: 4 };
+  const floor = floorByRoom[String(roomId).toLowerCase()] || 1;
+  const start = Math.floor(1 + Math.random() * 40);
+  return Array.from({ length: Math.max(1, Number(roomsBooked || 1)) }, (_, index) => `${floor}${String(start + index).padStart(2, "0")}`);
+}
+
+function receiptDetails(booking, user, hotel) {
+  const details = booking.bookingType === "transport"
+    ? [
+        ["Trip", bookingTitle(booking)],
+        ["Travel Date", booking.travelDate],
+        ["Operator", booking.provider],
+        ["Class", booking.seatClass],
+        ["Seat Type", booking.seatType || "Auto assigned"],
+        ["Seat Number", booking.seatNumber || "Auto assigned"],
+        ["Passengers", booking.passengers],
+      ]
+    : [
+        ["Hotel", booking.hotelName],
+        ["Place", hotel?.location || [hotel?.city, hotel?.state].filter(Boolean).join(", ") || "Hotel location"],
+        ["Check-in", booking.checkIn],
+        ["Check-out", booking.checkOut],
+        ["Room Type", booking.roomType || "Classic Room"],
+        ["Room View", booking.roomView || "Standard"],
+        ["Room Number", booking.roomNumbers?.length ? booking.roomNumbers.join(", ") : "Assigned at check-in"],
+        ["Rooms Booked", booking.roomsBooked || 1],
+        ["Guests", booking.guests],
+        ["Nights", booking.nights],
+      ];
+
+  return {
+    receiptNumber: booking.receiptNumber,
+    paymentId: booking.paymentId,
+    orderId: booking.razorpayOrderId,
+    paidAt: booking.updatedAt,
+    customer: { name: user?.name || "Guest", email: user?.email || "" },
+    title: bookingTitle(booking),
+    bookingType: booking.bookingType || "hotel",
+    amount: booking.totalPrice,
+    amountText: money(booking.totalPrice),
+    details: details.filter(([, value]) => value !== undefined && value !== null && value !== ""),
+  };
+}
+
+function receiptEmailHtml(receipt, receiptUrl) {
+  const rows = receipt.details.map(([label, value]) => (
+    `<tr><td style="padding:9px 10px;border-bottom:1px solid #edf1f5;color:#667085">${label}</td><td style="padding:9px 10px;border-bottom:1px solid #edf1f5;font-weight:700;color:#1f2937">${value}</td></tr>`
+  )).join("");
+
+  return `
+    <div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#1f2937">
+      <h2 style="color:#1e3a5f;margin-bottom:6px">TravelApp E-Bill / Receipt</h2>
+      <p>Hello ${receipt.customer.name}, your payment is successful. Your receipt is attached as a QR code and available online.</p>
+      <table style="width:100%;border-collapse:collapse;margin:18px 0;border:1px solid #edf1f5">${rows}</table>
+      <p style="font-size:18px"><strong>Total Paid:</strong> ${receipt.amountText}</p>
+      <p><strong>Receipt No:</strong> ${receipt.receiptNumber}<br><strong>Payment ID:</strong> ${receipt.paymentId}</p>
+      <p>Scan the attached QR code or open this receipt link:<br><a href="${receiptUrl}">${receiptUrl}</a></p>
+    </div>
+  `;
+}
+
+async function sendReceiptEmail(user, receipt, receiptUrl, qrDataUrl) {
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = process.env;
+  if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS) {
+    return { sent: false, status: "skipped: SMTP is not configured" };
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: Number(SMTP_PORT),
+    secure: Number(SMTP_PORT) === 465,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+  });
+
+  const qrBuffer = Buffer.from(qrDataUrl.split(",")[1], "base64");
+  await transporter.sendMail({
+    from: SMTP_FROM || SMTP_USER,
+    to: user.email,
+    subject: `Your TravelApp receipt ${receipt.receiptNumber}`,
+    html: receiptEmailHtml(receipt, receiptUrl),
+    text: `Your payment is successful. Receipt: ${receiptUrl}. Total paid: ${receipt.amountText}. Payment ID: ${receipt.paymentId}.`,
+    attachments: [{ filename: `${receipt.receiptNumber}-qr.png`, content: qrBuffer, contentType: "image/png" }],
+  });
+
+  return { sent: true, status: "sent" };
 }
 
 // ================================================================
@@ -425,6 +537,7 @@ app.post("/api/bookings", checkLogin, async (req, res) => {
       roomView:selectedRoom.view,
       roomPrice:selectedRoom.price,
       roomsBooked:bookedRooms,
+      roomNumbers:assignRoomNumbers(selectedRoom.id, bookedRooms),
     });
     await Notification.create({ userId:req.userId, type:"booking_confirmed", title:"🏨 Booking Confirmed!", message:`Your booking at ${hotel.name} (${checkIn} to ${checkOut}) is confirmed!`, data:{ bookingId:booking._id } });
     res.status(201).json({ booking });
@@ -552,12 +665,37 @@ app.post("/api/payment/razorpay/verify", checkLogin, async (req, res) => {
       return res.status(400).json({ message: "Payment verification failed" });
     }
 
+    const receiptNumber = `RCPT-${new Date().getFullYear()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+    const receiptUrl = `${frontendBaseUrl()}/receipt/${razorpay_payment_id}`;
+    const receiptQrCode = await QRCode.toDataURL(receiptUrl, { margin: 1, width: 260 });
     const booking = await Booking.findOneAndUpdate(
       { _id: bookingId, userId: req.userId },
-      { paymentStatus: "paid", paymentId: razorpay_payment_id },
+      {
+        paymentStatus: "paid",
+        paymentId: razorpay_payment_id,
+        razorpayOrderId: razorpay_order_id,
+        receiptNumber,
+        receiptUrl,
+        receiptQrCode,
+      },
       { new: true }
     );
     if (!booking) return res.status(404).json({ message: "Booking not found" });
+
+    const user = await User.findById(req.userId).select("name email");
+    const hotel = booking.hotelId ? await Hotel.findById(booking.hotelId).select("location city state") : null;
+    const receipt = receiptDetails(booking, user, hotel);
+    let emailResult;
+    try {
+      emailResult = await sendReceiptEmail(user, receipt, receiptUrl, receiptQrCode);
+      booking.receiptEmailStatus = emailResult.status;
+      if (emailResult.sent) booking.receiptEmailedAt = new Date();
+      await booking.save();
+    } catch (mailErr) {
+      emailResult = { sent: false, status: `failed: ${mailErr.message}` };
+      booking.receiptEmailStatus = emailResult.status;
+      await booking.save();
+    }
 
     const bookingLabel = booking.bookingType === "transport"
       ? `${booking.transportMode} ticket ${booking.source} to ${booking.destination}`
@@ -567,11 +705,25 @@ app.post("/api/payment/razorpay/verify", checkLogin, async (req, res) => {
       userId:req.userId,
       type:"payment_success",
       title:"Payment Successful!",
-      message:`Payment of Rs ${booking.totalPrice?.toLocaleString()} for ${bookingLabel} received. Enjoy your trip!`,
-      data:{ bookingId, paymentId: razorpay_payment_id, orderId: razorpay_order_id },
+      message:`Payment of Rs ${booking.totalPrice?.toLocaleString()} for ${bookingLabel} received. Receipt ${receiptNumber} is ready.`,
+      data:{ bookingId, paymentId: razorpay_payment_id, orderId: razorpay_order_id, receiptUrl },
     });
 
-    res.json({ message:"Payment successful", booking });
+    res.json({ message:"Payment successful", booking, receipt, receiptUrl, qrCodeDataUrl: receiptQrCode, emailStatus: emailResult.status });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
+app.get("/api/receipts/:paymentId", async (req, res) => {
+  try {
+    const booking = await Booking.findOne({ paymentId: req.params.paymentId, paymentStatus: "paid" });
+    if (!booking) return res.status(404).json({ message: "Receipt not found" });
+    const user = await User.findById(booking.userId).select("name email");
+    const hotel = booking.hotelId ? await Hotel.findById(booking.hotelId).select("location city state") : null;
+    res.json({
+      receipt: receiptDetails(booking, user, hotel),
+      receiptUrl: booking.receiptUrl || `${frontendBaseUrl()}/receipt/${booking.paymentId}`,
+      qrCodeDataUrl: booking.receiptQrCode,
+    });
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 

@@ -26,6 +26,7 @@ export default function PaymentPage() {
   const [loading, setLoading] = useState(false)
   const [done, setDone] = useState(false)
   const [error, setError] = useState('')
+  const [receiptResult, setReceiptResult] = useState(null)
 
   useEffect(() => {
     fetch(`${API}/bookings`, { headers: { authorization: token } })
@@ -78,6 +79,7 @@ export default function PaymentPage() {
             const verifyData = await verifyRes.json()
             if (!verifyRes.ok) throw new Error(verifyData.message || 'Payment verification failed')
             if (verifyData.booking) setBooking(verifyData.booking)
+            setReceiptResult(verifyData)
             setDone(true)
           } catch (err) {
             setError(err.message)
@@ -151,6 +153,22 @@ export default function PaymentPage() {
           <p style={{ color: '#888', marginBottom: '28px', fontSize: '14px' }}>
             {booking.bookingType === 'transport' ? booking.travelDate : `${booking.checkIn} to ${booking.checkOut}`} - {booking.bookingType === 'transport' ? booking.passengers : booking.guests} {booking.bookingType === 'transport' ? 'passenger' : 'guest'}{(booking.bookingType === 'transport' ? booking.passengers : booking.guests) !== 1 ? 's' : ''}
           </p>
+          {receiptResult?.qrCodeDataUrl && (
+            <div style={{ background: '#fff', border: '1px solid #d8efe0', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
+              <img src={receiptResult.qrCodeDataUrl} alt="Receipt QR code" style={{ width: '160px', height: '160px' }} />
+              <p style={{ margin: '8px 0 0', color: '#555', fontSize: '13px', fontWeight: '700' }}>Scan QR to view your e-bill</p>
+            </div>
+          )}
+          {receiptResult?.emailStatus && (
+            <p style={{ color: receiptResult.emailStatus === 'sent' ? '#1e8449' : '#9a6a00', margin: '0 0 16px', fontSize: '13px' }}>
+              Receipt email: {receiptResult.emailStatus}
+            </p>
+          )}
+          {receiptResult?.receiptUrl && (
+            <button onClick={() => window.open(receiptResult.receiptUrl, '_blank', 'noopener,noreferrer')} style={{ padding: '12px 22px', background: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Poppins, sans-serif', fontSize: '14px', fontWeight: '700', marginBottom: '12px', width: '100%' }}>
+              View E-Bill
+            </button>
+          )}
           <button onClick={() => navigate('/bookings')} style={{ padding: '14px 32px', background: '#27ae60', color: '#fff', border: 'none', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Poppins, sans-serif', fontSize: '15px', fontWeight: '700' }}>
             View My Bookings
           </button>

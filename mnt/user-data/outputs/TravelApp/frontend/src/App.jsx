@@ -11,6 +11,7 @@ import HotelDetailPage      from './pages/HotelDetailPage.jsx'
 import TransportBookingPage from './pages/TransportBookingPage.jsx'
 import BookingsPage         from './pages/BookingsPage.jsx'
 import PaymentPage          from './pages/PaymentPage.jsx'
+import ReceiptPage          from './pages/ReceiptPage.jsx'
 import AdminPage            from './pages/AdminPage.jsx'
 import WeatherPage          from './pages/WeatherPage.jsx'
 import BudgetCalculatorPage from './pages/BudgetCalculatorPage.jsx'
@@ -72,6 +73,7 @@ export default function App() {
         <Route path="/transport"     element={<Private><TransportBookingPage /></Private>} />
         <Route path="/bookings"      element={<Private><BookingsPage /></Private>} />
         <Route path="/payment/:id"   element={<Private><PaymentPage /></Private>} />
+        <Route path="/receipt/:paymentId" element={<ReceiptPage />} />
         <Route path="/weather"       element={<Private><WeatherPage /></Private>} />
         <Route path="/budget"        element={<Private><BudgetCalculatorPage /></Private>} />
         <Route path="/itinerary"     element={<Private><ItineraryPage /></Private>} />
