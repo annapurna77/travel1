@@ -18,6 +18,16 @@ const app = express();
 app.use(cors({ origin: "http://localhost:5173" }));
 app.use(express.json());
 
+process.on("uncaughtException", (err) => {
+  if (err.code === "EADDRINUSE") {
+    const port = process.env.PORT || 5000;
+    console.error(`Port ${port} is already in use. Stop the old backend process or set a different PORT in backend/.env.`);
+    process.exit(1);
+  }
+  console.error("Uncaught backend error:", err);
+  process.exit(1);
+});
+
 const razorpay = process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET
   ? new Razorpay({
       key_id: process.env.RAZORPAY_KEY_ID,
