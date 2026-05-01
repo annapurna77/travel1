@@ -14,7 +14,6 @@ import PaymentPage          from './pages/PaymentPage.jsx'
 import AdminPage            from './pages/AdminPage.jsx'
 import WeatherPage          from './pages/WeatherPage.jsx'
 import BudgetCalculatorPage from './pages/BudgetCalculatorPage.jsx'
-import PackingListPage      from './pages/PackingListPage.jsx'
 import ItineraryPage        from './pages/ItineraryPage.jsx'
 import ReviewsPage          from './pages/ReviewsPage.jsx'
 import WishlistPage         from './pages/WishlistPage.jsx'
@@ -75,7 +74,6 @@ export default function App() {
         <Route path="/payment/:id"   element={<Private><PaymentPage /></Private>} />
         <Route path="/weather"       element={<Private><WeatherPage /></Private>} />
         <Route path="/budget"        element={<Private><BudgetCalculatorPage /></Private>} />
-        <Route path="/packing"       element={<Private><PackingListPage /></Private>} />
         <Route path="/itinerary"     element={<Private><ItineraryPage /></Private>} />
         <Route path="/reviews"       element={<Private><ReviewsPage /></Private>} />
         <Route path="/wishlist"      element={<Private><WishlistPage /></Private>} />

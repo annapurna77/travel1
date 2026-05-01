@@ -8,11 +8,20 @@ const mongoose = require("mongoose");
 const bcrypt   = require("bcryptjs");
 const jwt      = require("jsonwebtoken");
 const cors     = require("cors");
+const crypto   = require("crypto");
+const Razorpay = require("razorpay");
 require("dotenv").config();
 
 const app = express();
 app.use(cors({ origin: "http://localhost:5173" }));
 app.use(express.json());
+
+const razorpay = process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET
+  ? new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
+    })
+  : null;
 
 // ── MongoDB ──────────────────────────────────────────────────────
 mongoose
@@ -86,6 +95,7 @@ const IndiaDest = mongoose.model("IndiaDest", new mongoose.Schema({
   lng:  Number,
   image:       { type: String, default: "" },
   awsImageUrl: { type: String, default: "" },
+  aliases: [String],
   topAttractions: [String],
   avgBudgetPerDay: Number,
   rating: { type: Number, default: 4.0 },
@@ -204,6 +214,18 @@ const DEFAULT_HOTELS = [
   { name:"Hotel Sentinel",             location:"Port Blair, Andaman & Nicobar", city:"Port Blair", state:"Andaman & Nicobar", description:"Comfortable city hotel for Cellular Jail and island hopping", price:5500, rating:4.2, category:"Standard", amenities:["Pool","WiFi","Restaurant","Breakfast"], rooms:50, season:["Winter","Summer"] },
   { name:"The Park Hotel",             location:"Bangalore, Karnataka",   city:"Bangalore",  state:"Karnataka",   description:"Trendy design hotel in Bengaluru city center",         price:6000,  rating:4.3, category:"Standard", amenities:["Pool","WiFi","Restaurant","Gym"],           rooms:109, season:["All Year"] },
   { name:"Coorg Coffee Estate Stay",   location:"Coorg, Karnataka",       city:"Coorg",       state:"Karnataka",   description:"Plantation stay with misty valley and coffee estate views", price:5000, rating:4.4, category:"Standard", amenities:["WiFi","Restaurant","Coffee Tour","Garden"], rooms:32, season:["Summer","Monsoon"] },
+  { name:"Mangalore Coastal Comfort",   location:"Mangalore, Karnataka",   city:"Mangalore",   state:"Karnataka",   description:"Coastal city hotel close to beaches, seafood spots and temple routes", price:4200, rating:4.3, category:"Standard", amenities:["WiFi","Restaurant","Breakfast","Parking"], rooms:48, season:["Winter","Summer","Monsoon"] },
+  { name:"Panambur Beachfront Inn",     location:"Panambur Beach, Mangalore, Karnataka", city:"Mangalore", state:"Karnataka", description:"Beachside hotel near Panambur Beach with easy access to sunset walks and water activities", price:3800, rating:4.2, category:"Standard", amenities:["Beach","WiFi","Restaurant","Breakfast"], rooms:34, season:["Winter","Summer","Monsoon"] },
+  { name:"Tannirbhavi River View Stay", location:"Tannirbhavi Beach, Mangalore, Karnataka", city:"Mangalore", state:"Karnataka", description:"Quiet coastal stay near Tannirbhavi Beach, ferry routes and relaxed seaside viewpoints", price:4600, rating:4.4, category:"Standard", amenities:["Beach","WiFi","Restaurant","Parking"], rooms:28, season:["Winter","Summer","Monsoon"] },
+  { name:"Kudroli Temple Residency",    location:"Kudroli, Mangalore, Karnataka", city:"Mangalore", state:"Karnataka", description:"Central hotel close to Kudroli Gokarnath Temple, city markets and temple sightseeing routes", price:3200, rating:4.1, category:"Budget", amenities:["WiFi","Breakfast","Restaurant","Parking"], rooms:40, season:["All Year"] },
+  { name:"Hampankatta Heritage Hotel",  location:"Hampankatta, Mangalore, Karnataka", city:"Mangalore", state:"Karnataka", description:"City hotel near St. Aloysius Chapel, old Mangalore heritage streets and shopping areas", price:3900, rating:4.2, category:"Standard", amenities:["WiFi","Restaurant","Breakfast","Travel Desk"], rooms:52, season:["All Year"] },
+  { name:"Boloor Riverside Retreat",    location:"Boloor, Mangalore, Karnataka", city:"Mangalore", state:"Karnataka", description:"Riverside stay near Sultan Battery, boat routes and quiet evening viewpoints", price:4400, rating:4.3, category:"Standard", amenities:["River View","WiFi","Restaurant","Parking"], rooms:30, season:["Winter","Summer","Monsoon"] },
+  { name:"Chikmagalur Coffee Estate Resort", location:"Chikmagalur, Karnataka", city:"Chikmagalur", state:"Karnataka", description:"Coffee estate stay with hill views, waterfalls and relaxed plantation walks", price:5600, rating:4.5, category:"Standard", amenities:["WiFi","Restaurant","Coffee Tour","Bonfire","Garden"], rooms:36, season:["Summer","Monsoon","Winter"] },
+  { name:"Chikmagalur Budget Homestay", location:"Chikmagalur, Karnataka", city:"Chikmagalur", state:"Karnataka", description:"Affordable homestay for Mullayanagiri, Baba Budangiri and coffee country sightseeing", price:2400, rating:4.2, category:"Budget", amenities:["WiFi","Breakfast","Local Guide","Parking"], rooms:18, season:["Summer","Monsoon","Winter"] },
+  { name:"Mullayanagiri Hill View Lodge", location:"Mullayanagiri Road, Chikmagalur, Karnataka", city:"Chikmagalur", state:"Karnataka", description:"Hill-view lodge for Mullayanagiri peak drives, sunrise viewpoints and trekking plans", price:4800, rating:4.4, category:"Standard", amenities:["Mountain View","WiFi","Restaurant","Travel Desk"], rooms:26, season:["Summer","Monsoon","Winter"] },
+  { name:"Baba Budangiri Mountain Camp", location:"Baba Budangiri, Chikmagalur, Karnataka", city:"Chikmagalur", state:"Karnataka", description:"Mountain camp close to Baba Budangiri viewpoints, caves and scenic Western Ghats roads", price:3600, rating:4.1, category:"Budget", amenities:["Meals","Bonfire","Local Guide","Parking"], rooms:20, season:["Summer","Monsoon","Winter"] },
+  { name:"Kemmanagundi Falls Retreat",  location:"Kemmanagundi, Chikmagalur, Karnataka", city:"Chikmagalur", state:"Karnataka", description:"Nature retreat for Hebbe Falls, Kemmanagundi routes and forest-side sightseeing", price:5200, rating:4.3, category:"Standard", amenities:["WiFi","Restaurant","Nature Walk","Parking"], rooms:24, season:["Summer","Monsoon","Winter"] },
+  { name:"Hirekolale Lake View Resort", location:"Hirekolale Lake, Chikmagalur, Karnataka", city:"Chikmagalur", state:"Karnataka", description:"Lake-view stay near Hirekolale sunset point and quiet Chikmagalur countryside drives", price:6200, rating:4.5, category:"Luxury", amenities:["Lake View","WiFi","Restaurant","Pool"], rooms:22, season:["Summer","Monsoon","Winter"] },
   { name:"Mysore Palace Residency",    location:"Mysore, Karnataka",      city:"Mysore",      state:"Karnataka",   description:"City hotel close to Mysore Palace and Devaraja Market", price:3600, rating:4.2, category:"Standard", amenities:["WiFi","Restaurant","Breakfast","Parking"], rooms:64, season:["Winter","Summer"] },
   { name:"Hampi Heritage Resort",      location:"Hampi, Karnataka",       city:"Hampi",       state:"Karnataka",   description:"Heritage stay near Hampi ruins and boulder landscapes", price:3900, rating:4.3, category:"Standard", amenities:["WiFi","Restaurant","Bicycle Rental","Garden"], rooms:38, season:["Winter"] },
   { name:"Sterling Yercaud",           location:"Yercaud, Tamil Nadu",    city:"Yercaud",    state:"Tamil Nadu",  description:"Serene hill resort in the Shevaroy Hills",            price:4500,  rating:4.2, category:"Standard", amenities:["WiFi","Restaurant","Garden","Trekking"],   rooms:60,  season:["Summer","Monsoon"] },
@@ -233,6 +255,19 @@ const INDIA_HOTEL_STATES = [
 
 function includesPlace(text, value = "") {
   return text.includes(String(value).toLowerCase());
+}
+
+function searchTermsForPlace(search = "") {
+  const term = String(search || "").trim();
+  if (!term) return [];
+
+  const terms = [term];
+  const lower = term.toLowerCase();
+  if (lower.includes("manglore")) terms.push("Mangalore");
+  if (lower.includes("chikka manglore") || lower.includes("chickmagalur") || lower.includes("chikmagaluru")) {
+    terms.push("Chikmagalur");
+  }
+  return [...new Set(terms)];
 }
 
 function roomOptionsForHotel(hotel) {
@@ -298,13 +333,30 @@ async function ensureIndiaHotels() {
   if (missing.length > 0) await Hotel.insertMany(missing);
 }
 
+async function ensureIndiaDestinations() {
+  const existingNames = await IndiaDest.find({
+    name: { $in: INDIA_DESTINATIONS.map(d => d.name) },
+  }).select("name");
+  const existing = new Set(existingNames.map(d => d.name));
+  const missing = INDIA_DESTINATIONS.filter(d => !existing.has(d.name));
+  if (missing.length > 0) await IndiaDest.insertMany(missing);
+}
+
 app.get("/api/hotels", async (req, res) => {
   try {
     const { search, category, minPrice, maxPrice, city, state, season } = req.query;
     await ensureIndiaHotels();
 
     let query = { state: { $in: INDIA_HOTEL_STATES } };
-    if (search)   query.$or = [{ name:{ $regex:search,$options:"i" }},{ location:{ $regex:search,$options:"i" }},{ city:{ $regex:search,$options:"i" }},{ state:{ $regex:search,$options:"i" }}];
+    if (search) {
+      const searchTerms = searchTermsForPlace(search);
+      query.$or = searchTerms.flatMap(term => [
+        { name:{ $regex:term,$options:"i" }},
+        { location:{ $regex:term,$options:"i" }},
+        { city:{ $regex:term,$options:"i" }},
+        { state:{ $regex:term,$options:"i" }},
+      ]);
+    }
     if (category && category !== "All") query.category = category;
     if (city)     query.city  = { $regex: city,  $options: "i" };
     if (state)    query.state = { $regex: state, $options: "i" };
@@ -451,6 +503,78 @@ app.delete("/api/bookings/:id", checkLogin, async (req, res) => {
 // ================================================================
 //  PAYMENT
 // ================================================================
+app.post("/api/payment/razorpay/order", checkLogin, async (req, res) => {
+  try {
+    if (!razorpay) return res.status(500).json({ message: "Razorpay is not configured" });
+
+    const { bookingId } = req.body;
+    const booking = await Booking.findOne({ _id: bookingId, userId: req.userId });
+    if (!booking) return res.status(404).json({ message: "Booking not found" });
+    if (booking.status === "cancelled") return res.status(400).json({ message: "Cannot pay for a cancelled booking" });
+    if (booking.paymentStatus === "paid") return res.status(400).json({ message: "Booking already paid" });
+
+    const amount = Math.round(Number(booking.totalPrice || 0) * 100);
+    if (amount <= 0) return res.status(400).json({ message: "Invalid payment amount" });
+
+    const order = await razorpay.orders.create({
+      amount,
+      currency: "INR",
+      receipt: `booking_${booking._id}`.slice(0, 40),
+      notes: {
+        bookingId: String(booking._id),
+        userId: String(req.userId),
+      },
+    });
+
+    res.json({
+      orderId: order.id,
+      amount: order.amount,
+      currency: order.currency,
+      key: process.env.RAZORPAY_KEY_ID,
+      booking,
+    });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
+app.post("/api/payment/razorpay/verify", checkLogin, async (req, res) => {
+  try {
+    const { bookingId, razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return res.status(400).json({ message: "Missing Razorpay payment details" });
+    }
+
+    const expectedSignature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET || "")
+      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+      .digest("hex");
+
+    if (expectedSignature !== razorpay_signature) {
+      return res.status(400).json({ message: "Payment verification failed" });
+    }
+
+    const booking = await Booking.findOneAndUpdate(
+      { _id: bookingId, userId: req.userId },
+      { paymentStatus: "paid", paymentId: razorpay_payment_id },
+      { new: true }
+    );
+    if (!booking) return res.status(404).json({ message: "Booking not found" });
+
+    const bookingLabel = booking.bookingType === "transport"
+      ? `${booking.transportMode} ticket ${booking.source} to ${booking.destination}`
+      : booking.hotelName;
+
+    await Notification.create({
+      userId:req.userId,
+      type:"payment_success",
+      title:"Payment Successful!",
+      message:`Payment of Rs ${booking.totalPrice?.toLocaleString()} for ${bookingLabel} received. Enjoy your trip!`,
+      data:{ bookingId, paymentId: razorpay_payment_id, orderId: razorpay_order_id },
+    });
+
+    res.json({ message:"Payment successful", booking });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
 app.post("/api/payment/simulate", checkLogin, async (req, res) => {
   try {
     const { bookingId } = req.body;
@@ -502,6 +626,8 @@ const INDIA_DESTINATIONS = [
   { name:"Rishikesh",       state:"Uttarakhand",        bestSeason:["Summer","Winter"],  category:"Adventure", lat:30.0869, lng:78.2676, description:"Yoga capital of the world and gateway to Himalayan treks and white water rafting.", topAttractions:["Ganga Aarti","River Rafting","Bungee Jumping","Laxman Jhula"], avgBudgetPerDay:1500, rating:4.6 },
   { name:"Udaipur",         state:"Rajasthan",          bestSeason:["Winter"],           category:"Heritage",  lat:24.5854, lng:73.7125, description:"City of Lakes with breathtaking palaces, serene lakes and Rajput grandeur.", topAttractions:["Lake Pichola","City Palace","Jag Mandir","Sajjangarh Palace"], avgBudgetPerDay:2500, rating:4.8 },
   { name:"Coorg",           state:"Karnataka",          bestSeason:["Summer","Monsoon"], category:"Nature",    lat:12.4244, lng:75.7382, description:"Scotland of India with misty hills, coffee plantations and cool weather.", topAttractions:["Abbey Falls","Raja Seat","Coffee Estates","Dubare Elephant Camp"], avgBudgetPerDay:2000, rating:4.5 },
+  { name:"Mangalore",       state:"Karnataka",          bestSeason:["Winter","Summer","Monsoon"], category:"Beach", lat:12.9141, lng:74.8560, description:"Coastal Karnataka city known for beaches, temples, seafood, river views and a relaxed port-city vibe.", aliases:["Manglore"], topAttractions:["Panambur Beach","Tannirbhavi Beach","Kudroli Gokarnath Temple","St. Aloysius Chapel"], avgBudgetPerDay:1800, rating:4.4 },
+  { name:"Chikmagalur",     state:"Karnataka",          bestSeason:["Summer","Monsoon","Winter"], category:"Nature", lat:13.3161, lng:75.7720, description:"Coffee country hill escape with misty peaks, waterfalls, estate stays and scenic Western Ghats drives.", aliases:["Chikka Manglore","Chikmagaluru","Chickmagalur"], topAttractions:["Mullayanagiri Peak","Baba Budangiri","Hebbe Falls","Coffee Estates"], avgBudgetPerDay:2200, rating:4.6 },
   { name:"Spiti Valley",    state:"Himachal Pradesh",   bestSeason:["Summer"],           category:"Adventure", lat:32.2461, lng:78.0344, description:"Cold desert mountain valley with ancient monasteries and dramatic landscapes.", topAttractions:["Key Monastery","Chandratal Lake","Kunzum Pass","Pin Valley"], avgBudgetPerDay:1800, rating:4.7 },
   { name:"Mysore",          state:"Karnataka",          bestSeason:["Winter","Summer"],  category:"Heritage",  lat:12.2958, lng:76.6394, description:"City of palaces, sandalwood and the famous Mysore Dasara festival.", topAttractions:["Mysore Palace","Chamundeshwari Temple","Brindavan Gardens","Devaraja Market"], avgBudgetPerDay:1800, rating:4.5 },
   { name:"Leh Ladakh",      state:"Ladakh",             bestSeason:["Summer"],           category:"Adventure", lat:34.1526, lng:77.5770, description:"High altitude desert with Buddhist monasteries, snow peaks and magnetic hills.", topAttractions:["Pangong Lake","Nubra Valley","Hemis Monastery","Magnetic Hill"], avgBudgetPerDay:3000, rating:4.9 },
@@ -541,6 +667,20 @@ const PLACE_GUIDES = {
     { name:"Kibber Village", area:"Kibber / Kaza", type:"Village", bestTime:"Morning", hotelKeywords:["kaza","key","spiti"], description:"High-altitude village near Key Monastery, useful for short hikes, wildlife routes and traditional homes." },
     { name:"Dhankar Monastery", area:"Dhankar", type:"Monastery", bestTime:"Morning", hotelKeywords:["kaza","spiti","monastery"], description:"Clifftop monastery above the Spiti and Pin river confluence, with old-world architecture and wide valley views." },
   ],
+  mangalore: [
+    { name:"Panambur Beach", area:"Panambur", type:"Beach", bestTime:"Evening", hotelKeywords:["panambur","beachfront"], description:"Popular clean beach for sunset walks, water activities and relaxed coastal evenings." },
+    { name:"Tannirbhavi Beach", area:"Tannirbhavi", type:"Beach", bestTime:"Sunset", hotelKeywords:["tannirbhavi","river view"], description:"Calmer beach across the river, good for long walks, sunset views and quieter seaside time." },
+    { name:"Kudroli Gokarnath Temple", area:"Kudroli", type:"Temple", bestTime:"Morning or evening", hotelKeywords:["kudroli","temple residency"], description:"Colorful temple complex and one of Mangalore's most visited spiritual landmarks." },
+    { name:"St. Aloysius Chapel", area:"Hampankatta", type:"Heritage", bestTime:"Late morning", hotelKeywords:["hampankatta","heritage hotel"], description:"Historic chapel famous for detailed interior paintings and old Mangalore heritage." },
+    { name:"Sultan Battery", area:"Boloor", type:"Heritage", bestTime:"Evening", hotelKeywords:["boloor","riverside"], description:"Riverside watchtower built by Tipu Sultan, useful for short visits and boat routes." },
+  ],
+  chikmagalur: [
+    { name:"Mullayanagiri Peak", area:"Mullayanagiri", type:"Mountain", bestTime:"Morning", hotelKeywords:["mullayanagiri","hill view"], description:"Karnataka's highest peak with breezy viewpoints, short climbs and sweeping Western Ghats scenery." },
+    { name:"Baba Budangiri", area:"Baba Budangiri", type:"Mountain", bestTime:"Morning to afternoon", hotelKeywords:["baba budangiri","mountain camp"], description:"Scenic hill range known for caves, viewpoints, coffee history and winding mountain roads." },
+    { name:"Hebbe Falls", area:"Kemmanagundi", type:"Waterfall", bestTime:"Post-monsoon or morning", hotelKeywords:["kemmanagundi","falls"], description:"Forest waterfall route often paired with Kemmanagundi and full-day nature plans." },
+    { name:"Coffee Estates", area:"Chikmagalur", type:"Nature", bestTime:"Morning", hotelKeywords:["chikmagalur","coffee","estate","homestay"], description:"Plantation walks and estate stays that make Chikmagalur one of Karnataka's favorite hill getaways." },
+    { name:"Hirekolale Lake", area:"Hirekolale", type:"Lake", bestTime:"Sunset", hotelKeywords:["hirekolale","lake view"], description:"Peaceful lake with hill views, especially pretty around sunset and quick evening drives." },
+  ],
 };
 
 function hotelNoteForPlace(place, hotel) {
@@ -552,6 +692,11 @@ function hotelNoteForPlace(place, hotel) {
   if (area.includes("kunzum") || area.includes("losar")) return "Useful for Kunzum Pass and Losar road-trip stopovers.";
   if (area.includes("pin")) return "Best for Pin Valley, Mud Village and nature routes.";
   if (area.includes("dhankar")) return "Works for Dhankar Monastery day trips from the Kaza side.";
+  if (area.includes("panambur") || area.includes("tannirbhavi")) return "Good for Mangalore beach plans and coastal sightseeing.";
+  if (area.includes("kudroli") || area.includes("hampankatta") || area.includes("boloor")) return "Convenient for Mangalore city temples, heritage stops and short transfers.";
+  if (area.includes("mullayanagiri") || area.includes("baba budangiri")) return "Best for Chikmagalur hill drives, viewpoints and coffee country routes.";
+  if (area.includes("kemmanagundi")) return "Useful for Hebbe Falls, Kemmanagundi and full-day nature plans.";
+  if (area.includes("chikmagalur")) return "Good for coffee estates, lake visits and local Chikmagalur sightseeing.";
   if (area.includes("old city")) return "Good choice for Old City places like Hawa Mahal, City Palace, Jantar Mantar and Bapu Bazaar.";
   if (area.includes("amer")) return "Useful for Amer side sightseeing, including Amer Fort and Jaigarh Fort.";
   if (area.includes("aravalli")) return "Works well for hill-view plans around Nahargarh Fort and evening viewpoints.";
@@ -562,13 +707,24 @@ function hotelNoteForPlace(place, hotel) {
   return "Available for this sightseeing plan.";
 }
 
-function hotelsForPlace(place, hotels) {
+function rotatedHotels(hotels, offset = 0) {
+  if (!hotels.length) return hotels;
+  const start = Math.abs(offset) % hotels.length;
+  return [...hotels.slice(start), ...hotels.slice(0, start)];
+}
+
+function hotelId(hotel) {
+  return String(hotel._id || hotel.name);
+}
+
+function hotelsForPlace(place, hotels, fallbackOffset = 0, limit = 4) {
   const autoKeywords = String(place.name || "")
     .toLowerCase()
     .split(/[^a-z0-9]+/)
     .filter(word => word.length >= 4);
   const keywords = [...(place.hotelKeywords || []), ...autoKeywords].map(k => String(k).toLowerCase());
-  if (keywords.length === 0) return hotels;
+  const fallbackHotels = rotatedHotels(hotels, fallbackOffset);
+  if (keywords.length === 0) return fallbackHotels.slice(0, limit);
 
   const matched = hotels.filter(hotel => {
     const text = [
@@ -580,7 +736,12 @@ function hotelsForPlace(place, hotels) {
     return keywords.some(keyword => text.includes(keyword));
   });
 
-  return matched.length ? matched : hotels;
+  const selected = matched.slice(0, limit);
+  if (selected.length >= limit) return selected;
+
+  const selectedIds = new Set(selected.map(hotelId));
+  const fallback = fallbackHotels.filter(hotel => !selectedIds.has(hotelId(hotel)));
+  return [...selected, ...fallback].slice(0, limit);
 }
 
 function hotelMatchesPlace(place, hotel) {
@@ -618,13 +779,13 @@ async function buildDestinationPlaceGuide(dest, placeHotelLimit = 4) {
     area: dest.name,
     type: dest.category,
     bestTime: "Plan around your day route",
-    hotelKeywords: [name, dest.name],
+    hotelKeywords: [name],
     description: `A recommended place to visit in ${dest.name}.`,
   }));
   const hotelsForPlaces = hotels.length ? hotels : stateHotels;
-  const placesToVisit = guide.map(place => ({
+  const placesToVisit = guide.map((place, index) => ({
     ...place,
-    hotels: hotelsForPlace(place, hotelsForPlaces).slice(0, placeHotelLimit).map(hotel => ({
+    hotels: hotelsForPlace(place, hotelsForPlaces, index * placeHotelLimit, placeHotelLimit).map(hotel => ({
       ...(hotel.toObject ? hotel.toObject() : hotel),
       nearbyNote: hotelMatchesPlace(place, hotel)
         ? hotelNoteForPlace(place, hotel)
@@ -638,17 +799,22 @@ async function buildDestinationPlaceGuide(dest, placeHotelLimit = 4) {
 app.get("/api/india-destinations", async (req, res) => {
   try {
     const { season, category, state, search } = req.query;
+    await ensureIndiaDestinations();
     let query = {};
     if (season && season !== "All")   query.bestSeason = { $in: [season] };
     if (category && category !== "All") query.category = category;
     if (state)  query.state = { $regex: state,  $options:"i" };
-    if (search) query.$or  = [{ name:{ $regex:search,$options:"i" }},{ state:{ $regex:search,$options:"i" }},{ description:{ $regex:search,$options:"i" }}];
+    if (search) {
+      const searchTerms = searchTermsForPlace(search);
+      query.$or = searchTerms.flatMap(term => [
+        { name:{ $regex:term,$options:"i" }},
+        { state:{ $regex:term,$options:"i" }},
+        { description:{ $regex:term,$options:"i" }},
+        { aliases:{ $regex:term,$options:"i" }},
+      ]);
+    }
 
     let dests = await IndiaDest.find(query).sort({ rating: -1 });
-    if (dests.length === 0 && !season && !category && !state && !search) {
-      await IndiaDest.insertMany(INDIA_DESTINATIONS);
-      dests = await IndiaDest.find().sort({ rating: -1 });
-    }
     res.json({ destinations: dests });
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
@@ -672,13 +838,14 @@ app.post("/api/chatbot", async (req, res) => {
     const msg = message.toLowerCase().trim();
 
     await ensureIndiaHotels();
+    await ensureIndiaDestinations();
 
     // Get all destinations and India hotels from DB
     let dests  = await IndiaDest.find().sort({ rating:-1 });
     let hotels = await Hotel.find({ state: { $in: INDIA_HOTEL_STATES } }).sort({ rating:-1 });
 
     // Seed if empty
-    if (dests.length === 0) { await IndiaDest.insertMany(INDIA_DESTINATIONS); dests = await IndiaDest.find().sort({ rating:-1 }); }
+    if (dests.length === 0) { await ensureIndiaDestinations(); dests = await IndiaDest.find().sort({ rating:-1 }); }
     if (hotels.length === 0) { await ensureIndiaHotels(); hotels = await Hotel.find({ state: { $in: INDIA_HOTEL_STATES } }).sort({ rating:-1 }); }
 
     let reply   = "";
@@ -705,7 +872,16 @@ app.post("/api/chatbot", async (req, res) => {
     // ── State/City detection ──────────────────────────────────────
     const STATES = ["goa","rajasthan","kerala","himachal","uttarakhand","karnataka","tamil nadu","maharashtra","gujarat","punjab","west bengal","ladakh","meghalaya","odisha","uttar pradesh","madhya pradesh","andaman"];
     const detectedState = STATES.find(s => msg.includes(s));
-    const detectedDestination = dests.find(d => includesPlace(msg, d.name));
+    const detectedDestination = dests.find(d => (
+      includesPlace(msg, d.name) ||
+      d.aliases?.some(alias => includesPlace(msg, alias)) ||
+      (d.name === "Mangalore" && msg.includes("manglore")) ||
+      (d.name === "Chikmagalur" && (
+        msg.includes("chikka manglore") ||
+        msg.includes("chikmagaluru") ||
+        msg.includes("chickmagalur")
+      ))
+    ));
 
     // ── Build filters ─────────────────────────────────────────────
     let seasonFilter   = isSummer ? "Summer" : isWinter ? "Winter" : isMonsoon ? "Monsoon" : null;
@@ -829,11 +1005,8 @@ app.delete("/api/admin/users/:id", checkLogin, checkAdmin, async (req, res) => {
 //  DESTINATIONS (for Map)
 // ================================================================
 app.get("/api/destinations", async (req, res) => {
+  await ensureIndiaDestinations();
   const dests = await IndiaDest.find().sort({ rating:-1 });
-  if (dests.length === 0) {
-    await IndiaDest.insertMany(INDIA_DESTINATIONS);
-    return res.json({ destinations: await IndiaDest.find().sort({ rating:-1 }) });
-  }
   res.json({ destinations: dests.map(d => ({ ...d.toObject(), lat:d.lat, lng:d.lng, country:"India", info:d.description })) });
 });
 

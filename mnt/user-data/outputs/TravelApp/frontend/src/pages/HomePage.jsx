@@ -76,7 +76,6 @@ export default function HomePage() {
     { icon: '🗺️', label: 'Destination Map', desc: 'Interactive world map', path: '/map', color: '#16a085' },
     { icon: '🌤️', label: 'Weather Forecast', desc: 'Live weather anywhere', path: '/weather', color: '#3498db' },
     { icon: '💰', label: 'Budget Calculator', desc: 'Plan your expenses', path: '/budget', color: '#e74c3c' },
-    { icon: '🎒', label: 'Packing Checklist', desc: 'Never forget anything', path: '/packing', color: '#8e44ad' },
     { icon: '📅', label: 'Itinerary Builder', desc: 'Day-by-day schedule', path: '/itinerary', color: '#2c3e50' },
     { icon: '⭐', label: 'Hotel Reviews', desc: 'Read and write reviews', path: '/reviews', color: '#f39c12' },
     { icon: '🌍', label: 'Travel Wishlist', desc: 'Your bucket list', path: '/wishlist', color: '#1abc9c' },
