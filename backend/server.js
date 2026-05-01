@@ -12,6 +12,9 @@ const crypto   = require("crypto");
 const Razorpay = require("razorpay");
 const nodemailer = require("nodemailer");
 const QRCode   = require("qrcode");
+const PDFDocument = require("pdfkit");
+const fs = require("fs");
+const path = require("path");
 require("dotenv").config();
 
 const app = express();
@@ -227,6 +230,70 @@ function receiptEmailHtml(receipt, receiptUrl) {
   `;
 }
 
+async function generateReceiptPdf(receipt, qrDataUrl) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ margin: 50 });
+      const chunks = [];
+      
+      doc.on('data', chunk => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      // Header
+      doc.fillColor('#1e3a5f').fontSize(24).text('TravelApp E-Bill', { align: 'center' });
+      doc.moveDown();
+      doc.fillColor('#333').fontSize(12).text('Payment Receipt', { align: 'center' });
+      doc.moveDown(2);
+
+      // Customer Info
+      doc.fillColor('#1e3a5f').fontSize(14).text('Customer Details');
+      doc.fillColor('#333').fontSize(11);
+      doc.text(`Name: ${receipt.customer.name}`);
+      doc.text(`Email: ${receipt.customer.email}`);
+      doc.moveDown();
+
+      // Booking Details
+      doc.fillColor('#1e3a5f').fontSize(14).text('Booking Details');
+      doc.moveDown(0.5);
+      
+      receipt.details.forEach(([label, value]) => {
+        doc.fillColor('#666').fontSize(10).text(`${label}:`, { continued: true });
+        doc.fillColor('#333').fontSize(10).text(` ${value}`);
+      });
+      doc.moveDown();
+
+      // Payment Info
+      doc.fillColor('#1e3a5f').fontSize(14).text('Payment Information');
+      doc.moveDown(0.5);
+      doc.fillColor('#333').fontSize(11);
+      doc.text(`Receipt Number: ${receipt.receiptNumber}`);
+      doc.text(`Payment ID: ${receipt.paymentId}`);
+      doc.text(`Order ID: ${receipt.orderId}`);
+      doc.text(`Amount Paid: ${receipt.amountText}`);
+      doc.text(`Date: ${new Date(receipt.paidAt).toLocaleString()}`);
+      doc.moveDown(2);
+
+      // QR Code
+      if (qrDataUrl) {
+        const qrBuffer = Buffer.from(qrDataUrl.split(",")[1], "base64");
+        doc.image(qrBuffer, { fit: [120, 120], align: 'center' });
+        doc.moveDown();
+        doc.fillColor('#666').fontSize(9).text('Scan QR to view online receipt', { align: 'center' });
+      }
+
+      // Footer
+      doc.moveDown(2);
+      doc.fillColor('#888').fontSize(9).text('Thank you for choosing TravelApp!', { align: 'center' });
+      doc.text('For support, contact support@travelapp.com', { align: 'center' });
+
+      doc.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
 async function sendReceiptEmail(user, receipt, receiptUrl, qrDataUrl) {
   const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = process.env;
   if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS) {
@@ -241,13 +308,35 @@ async function sendReceiptEmail(user, receipt, receiptUrl, qrDataUrl) {
   });
 
   const qrBuffer = Buffer.from(qrDataUrl.split(",")[1], "base64");
+  
+  // Generate PDF
+  let pdfBuffer = null;
+  try {
+    pdfBuffer = await generateReceiptPdf(receipt, qrDataUrl);
+  } catch (err) {
+    console.error("PDF generation error:", err);
+  }
+
+  const attachments = [
+    { filename: `${receipt.receiptNumber}-qr.png`, content: qrBuffer, contentType: "image/png" },
+  ];
+  
+  // Add PDF attachment if generated
+  if (pdfBuffer) {
+    attachments.push({ 
+      filename: `${receipt.receiptNumber}.pdf`, 
+      content: pdfBuffer, 
+      contentType: "application/pdf" 
+    });
+  }
+
   await transporter.sendMail({
     from: SMTP_FROM || SMTP_USER,
     to: user.email,
     subject: `Your TravelApp receipt ${receipt.receiptNumber}`,
     html: receiptEmailHtml(receipt, receiptUrl),
     text: `Your payment is successful. Receipt: ${receiptUrl}. Total paid: ${receipt.amountText}. Payment ID: ${receipt.paymentId}.`,
-    attachments: [{ filename: `${receipt.receiptNumber}-qr.png`, content: qrBuffer, contentType: "image/png" }],
+    attachments,
   });
 
   return { sent: true, status: "sent" };
@@ -628,17 +717,27 @@ app.delete("/api/bookings/:id", checkLogin, async (req, res) => {
 // ================================================================
 app.post("/api/payment/razorpay/order", checkLogin, async (req, res) => {
   try {
+    console.log("=== RAZORPAY ORDER REQUEST ===");
+    console.log("Razorpay configured:", !!razorpay);
+    console.log("Key ID present:", !!process.env.RAZORPAY_KEY_ID);
+    console.log("Key Secret present:", !!process.env.RAZORPAY_KEY_SECRET);
+    
     if (!razorpay) return res.status(500).json({ message: "Razorpay is not configured" });
 
     const { bookingId } = req.body;
+    console.log("Booking ID:", bookingId);
+    console.log("User ID:", req.userId);
+    
     const booking = await Booking.findOne({ _id: bookingId, userId: req.userId });
     if (!booking) return res.status(404).json({ message: "Booking not found" });
     if (booking.status === "cancelled") return res.status(400).json({ message: "Cannot pay for a cancelled booking" });
     if (booking.paymentStatus === "paid") return res.status(400).json({ message: "Booking already paid" });
 
     const amount = Math.round(Number(booking.totalPrice || 0) * 100);
+    console.log("Amount (paise):", amount);
     if (amount <= 0) return res.status(400).json({ message: "Invalid payment amount" });
 
+    console.log("Creating Razorpay order...");
     const order = await razorpay.orders.create({
       amount,
       currency: "INR",
@@ -648,6 +747,7 @@ app.post("/api/payment/razorpay/order", checkLogin, async (req, res) => {
         userId: String(req.userId),
       },
     });
+    console.log("Order created successfully:", order.id);
 
     res.json({
       orderId: order.id,
@@ -656,7 +756,10 @@ app.post("/api/payment/razorpay/order", checkLogin, async (req, res) => {
       key: process.env.RAZORPAY_KEY_ID,
       booking,
     });
-  } catch (err) { res.status(500).json({ message: err.message }); }
+  } catch (err) { 
+    console.error("Razorpay order error:", err);
+    res.status(500).json({ message: err.message }); 
+  }
 });
 
 app.post("/api/payment/razorpay/verify", checkLogin, async (req, res) => {
@@ -734,6 +837,24 @@ app.get("/api/receipts/:paymentId", async (req, res) => {
       receiptUrl: booking.receiptUrl || `${frontendBaseUrl()}/receipt/${booking.paymentId}`,
       qrCodeDataUrl: booking.receiptQrCode,
     });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
+// Download PDF Receipt
+app.get("/api/receipts/:paymentId/pdf", async (req, res) => {
+  try {
+    const booking = await Booking.findOne({ paymentId: req.params.paymentId, paymentStatus: "paid" });
+    if (!booking) return res.status(404).json({ message: "Receipt not found" });
+    
+    const user = await User.findById(booking.userId).select("name email");
+    const hotel = booking.hotelId ? await Hotel.findById(booking.hotelId).select("location city state") : null;
+    const receipt = receiptDetails(booking, user, hotel);
+    
+    const pdfBuffer = await generateReceiptPdf(receipt, booking.receiptQrCode);
+    
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${receipt.receiptNumber}.pdf"`);
+    res.send(pdfBuffer);
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 

@@ -169,6 +169,11 @@ export default function PaymentPage() {
               View E-Bill
             </button>
           )}
+          {receiptResult?.receiptUrl && (
+            <button onClick={() => window.open(receiptResult.receiptUrl?.replace('/receipt/', '/receipts/') + '/pdf', '_blank', 'noopener,noreferrer')} style={{ padding: '12px 22px', background: '#27ae60', color: '#fff', border: 'none', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Poppins, sans-serif', fontSize: '14px', fontWeight: '700', marginBottom: '12px', width: '100%' }}>
+              Download PDF
+            </button>
+          )}
           <button onClick={() => navigate('/bookings')} style={{ padding: '14px 32px', background: '#27ae60', color: '#fff', border: 'none', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Poppins, sans-serif', fontSize: '15px', fontWeight: '700' }}>
             View My Bookings
           </button>

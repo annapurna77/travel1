@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import Navbar from '../components/Navbar.jsx'
 
 const API = 'http://localhost:5000/api'
 
@@ -23,17 +24,27 @@ export default function ReceiptPage() {
       .finally(() => setLoading(false))
   }, [paymentId])
 
+  const downloadPdf = () => {
+    window.open(`${API}/receipts/${paymentId}/pdf`, '_blank')
+  }
+
   return (
-    <div style={{ fontFamily: 'Poppins, sans-serif', minHeight: '100vh', background: '#f0f4f8', padding: '28px 16px' }}>
-      <div style={{ maxWidth: '760px', margin: '0 auto', background: '#fff', borderRadius: '14px', boxShadow: '0 3px 16px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
+    <div style={{ fontFamily: 'Poppins, sans-serif', minHeight: '100vh', background: '#f0f4f8' }}>
+      <Navbar />
+      <div style={{ maxWidth: '760px', margin: '0 auto', padding: '28px 16px', background: '#fff', borderRadius: '14px', boxShadow: '0 3px 16px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
         <div style={{ background: '#1e3a5f', color: '#fff', padding: '22px 26px', display: 'flex', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap' }}>
           <div>
             <h1 style={{ margin: 0, fontSize: '24px' }}>TravelApp E-Bill</h1>
             <p style={{ margin: '6px 0 0', opacity: 0.85, fontSize: '13px' }}>{receipt?.receiptNumber || 'Payment receipt'}</p>
           </div>
-          <button onClick={() => navigate('/bookings')} style={{ alignSelf: 'center', padding: '10px 16px', border: '1px solid rgba(255,255,255,0.5)', borderRadius: '8px', background: 'transparent', color: '#fff', cursor: 'pointer', fontWeight: '700', fontFamily: 'Poppins, sans-serif' }}>
-            Back to Bookings
-          </button>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <button onClick={downloadPdf} style={{ alignSelf: 'center', padding: '10px 16px', border: '1px solid rgba(255,255,255,0.5)', borderRadius: '8px', background: 'transparent', color: '#fff', cursor: 'pointer', fontWeight: '700', fontFamily: 'Poppins, sans-serif' }}>
+              Download PDF
+            </button>
+            <button onClick={() => navigate('/bookings')} style={{ alignSelf: 'center', padding: '10px 16px', border: '1px solid rgba(255,255,255,0.5)', borderRadius: '8px', background: 'transparent', color: '#fff', cursor: 'pointer', fontWeight: '700', fontFamily: 'Poppins, sans-serif' }}>
+              Back to Bookings
+            </button>
+          </div>
         </div>
 
         {loading && <div style={{ padding: '38px', textAlign: 'center', color: '#777' }}>Loading receipt...</div>}
