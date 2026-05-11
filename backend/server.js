@@ -18,7 +18,7 @@ const path = require("path");
 require("dotenv").config();
 
 const app = express();
-app.use(cors({ origin: "http://localhost:5173" }));
+app.use(cors({ origin: frontendBaseUrl() }));
 app.use(express.json());
 
 process.on("uncaughtException", (err) => {
@@ -155,6 +155,38 @@ function checkAdmin(req, res, next) {
 
 function frontendBaseUrl() {
   return process.env.FRONTEND_URL || "http://localhost:5173";
+}
+
+function backendBaseUrl() {
+  return process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 5000}`;
+}
+
+function googleRedirectUri() {
+  return process.env.GOOGLE_REDIRECT_URI || `${backendBaseUrl()}/api/auth/google/callback`;
+}
+
+function createToken(user) {
+  return jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET || "mysecretkey123", { expiresIn: "7d" });
+}
+
+function publicUser(user) {
+  return { id: user._id, name: user.name, email: user.email, role: user.role };
+}
+
+async function findOrCreateOAuthUser({ email, name }) {
+  const normalizedEmail = String(email || "").toLowerCase();
+  let user = await User.findOne({ email: normalizedEmail });
+  if (!user) {
+    const shouldBeAdmin = (await User.countDocuments()) === 0;
+    const randomPassword = crypto.randomBytes(32).toString("hex");
+    user = await User.create({
+      name: name || normalizedEmail.split("@")[0],
+      email: normalizedEmail,
+      password: await bcrypt.hash(randomPassword, 10),
+      role: shouldBeAdmin ? "admin" : "user",
+    });
+  }
+  return user;
 }
 
 function money(value) {
@@ -353,8 +385,8 @@ app.post("/api/register", async (req, res) => {
     const shouldBeAdmin = (await User.countDocuments()) === 0;
     const hashed = await bcrypt.hash(password, 10);
     const user   = await User.create({ name, email, password: hashed, role: shouldBeAdmin ? "admin" : "user" });
-    const token  = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET || "mysecretkey123", { expiresIn: "7d" });
-    res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
+    const token  = createToken(user);
+    res.status(201).json({ token, user: publicUser(user) });
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
@@ -364,9 +396,90 @@ app.post("/api/login", async (req, res) => {
     const user = await User.findOne({ email });
     if (!user || !(await bcrypt.compare(password, user.password)))
       return res.status(400).json({ message: "Wrong email or password" });
-    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET || "mysecretkey123", { expiresIn: "7d" });
-    res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
+    const token = createToken(user);
+    res.json({ token, user: publicUser(user) });
   } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
+app.get("/api/auth/google/status", (req, res) => {
+  const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = process.env;
+  res.json({
+    configured: Boolean(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET),
+    message: GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET
+      ? "Google login is configured"
+      : "Google login needs real GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in backend/.env",
+  });
+});
+
+app.get("/api/auth/google", (req, res) => {
+  const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = process.env;
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+    const params = new URLSearchParams({
+      error: "Real Google login needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in backend/.env, then restart the backend.",
+    });
+    return res.redirect(`${frontendBaseUrl()}/auth/callback?${params.toString()}`);
+  }
+
+  const params = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: googleRedirectUri(),
+    response_type: "code",
+    scope: "openid email profile",
+    prompt: "select_account",
+  });
+
+  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+});
+
+app.get("/api/auth/google/callback", async (req, res) => {
+  const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = process.env;
+  const frontendCallback = `${frontendBaseUrl()}/auth/callback`;
+
+  try {
+    if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+      throw new Error("Google login is not configured");
+    }
+    if (req.query.error) {
+      throw new Error(String(req.query.error));
+    }
+    if (!req.query.code) {
+      throw new Error("Missing Google authorization code");
+    }
+
+    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code: String(req.query.code),
+        client_id: GOOGLE_CLIENT_ID,
+        client_secret: GOOGLE_CLIENT_SECRET,
+        redirect_uri: googleRedirectUri(),
+        grant_type: "authorization_code",
+      }),
+    });
+    const googleTokens = await tokenRes.json();
+    if (!tokenRes.ok) {
+      throw new Error(googleTokens.error_description || googleTokens.error || "Google token exchange failed");
+    }
+
+    const profileRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+      headers: { Authorization: `Bearer ${googleTokens.access_token}` },
+    });
+    const profile = await profileRes.json();
+    if (!profileRes.ok || !profile.email) {
+      throw new Error(profile.error_description || "Could not read Google profile");
+    }
+
+    const user = await findOrCreateOAuthUser({ email: profile.email, name: profile.name });
+    const params = new URLSearchParams({
+      token: createToken(user),
+      user: JSON.stringify(publicUser(user)),
+    });
+    res.redirect(`${frontendCallback}?${params.toString()}`);
+  } catch (err) {
+    const params = new URLSearchParams({ error: err.message || "Google login failed" });
+    res.redirect(`${frontendCallback}?${params.toString()}`);
+  }
 });
 
 app.get("/api/me", checkLogin, async (req, res) => {
@@ -957,6 +1070,13 @@ const PLACE_GUIDES = {
     { name:"St. Aloysius Chapel", area:"Hampankatta", type:"Heritage", bestTime:"Late morning", hotelKeywords:["hampankatta","heritage hotel"], description:"Historic chapel famous for detailed interior paintings and old Mangalore heritage." },
     { name:"Sultan Battery", area:"Boloor", type:"Heritage", bestTime:"Evening", hotelKeywords:["boloor","riverside"], description:"Riverside watchtower built by Tipu Sultan, useful for short visits and boat routes." },
   ],
+  coorg: [
+    { name:"Abbey Falls", area:"Madikeri / Coorg", type:"Waterfall", bestTime:"Morning or post-monsoon", hotelKeywords:["coorg","madikeri","kodagu"], description:"Popular waterfall near Madikeri, best paired with coffee estate stays and misty valley drives." },
+    { name:"Raja Seat", area:"Madikeri", type:"Viewpoint", bestTime:"Sunrise or sunset", hotelKeywords:["coorg","madikeri","kodagu","valley"], description:"Garden viewpoint overlooking Coorg's rolling hills, especially scenic during sunrise and sunset." },
+    { name:"Coffee Estates", area:"Coorg / Kodagu", type:"Nature", bestTime:"Morning", hotelKeywords:["coorg","kodagu","madikeri"], description:"Plantation walks and coffee estate stays are central to the Coorg travel experience." },
+    { name:"Dubare Elephant Camp", area:"Dubare", type:"Wildlife", bestTime:"Morning", hotelKeywords:["coorg","kodagu","dubare","river"], description:"Riverside elephant camp often visited with Kushalnagar and nature routes." },
+    { name:"Talakaveri", area:"Bhagamandala", type:"Pilgrimage", bestTime:"Morning", hotelKeywords:["coorg","kodagu","bhagamandala"], description:"Hilltop origin point of the Kaveri river with temple visits and wide Western Ghats views." },
+  ],
   chikmagalur: [
     { name:"Mullayanagiri Peak", area:"Mullayanagiri", type:"Mountain", bestTime:"Morning", hotelKeywords:["mullayanagiri","hill view"], description:"Karnataka's highest peak with breezy viewpoints, short climbs and sweeping Western Ghats scenery." },
     { name:"Baba Budangiri", area:"Baba Budangiri", type:"Mountain", bestTime:"Morning to afternoon", hotelKeywords:["baba budangiri","mountain camp"], description:"Scenic hill range known for caves, viewpoints, coffee history and winding mountain roads." },
@@ -1047,6 +1167,26 @@ function uniqueHotels(hotels) {
   });
 }
 
+function destinationHotelTerms(dest) {
+  const base = [dest.name, ...(dest.aliases || [])].map(term => String(term || "").toLowerCase());
+  if (String(dest.name).toLowerCase() === "coorg") return [...base, "kodagu", "madikeri"];
+  if (String(dest.name).toLowerCase() === "mangalore") return [...base, "panambur", "tannirbhavi", "kudroli", "hampankatta", "boloor"];
+  if (String(dest.name).toLowerCase() === "chikmagalur") return [...base, "chikmagaluru", "mullayanagiri", "baba budangiri", "kemmanagundi", "coffee"];
+  return base;
+}
+
+function hotelBelongsToDestination(dest, hotel) {
+  const terms = destinationHotelTerms(dest);
+  const strictText = [hotel.name, hotel.location, hotel.city]
+    .join(" ")
+    .toLowerCase();
+  if (String(dest.name).toLowerCase() === "coorg") {
+    return terms.some(term => term && strictText.includes(term));
+  }
+  const text = [strictText, hotel.description].join(" ").toLowerCase();
+  return terms.some(term => term && text.includes(term));
+}
+
 async function buildDestinationPlaceGuide(dest, placeHotelLimit = 4) {
   const destinationHotels = await Hotel.find({
     $or: [
@@ -1056,7 +1196,9 @@ async function buildDestinationPlaceGuide(dest, placeHotelLimit = 4) {
     ],
   }).sort({ rating:-1 }).limit(8);
   const stateHotels = await Hotel.find({ state: { $regex: dest.state, $options:"i" } }).sort({ rating:-1 }).limit(12);
-  const hotels = uniqueHotels([...destinationHotels, ...stateHotels]);
+  const destinationScopedHotels = uniqueHotels([...destinationHotels, ...stateHotels])
+    .filter(hotel => hotelBelongsToDestination(dest, hotel));
+  const hotels = destinationScopedHotels.length ? destinationScopedHotels : destinationHotels;
   const guide = PLACE_GUIDES[dest.name.toLowerCase()] || dest.topAttractions.map(name => ({
     name,
     area: dest.name,
@@ -1065,7 +1207,7 @@ async function buildDestinationPlaceGuide(dest, placeHotelLimit = 4) {
     hotelKeywords: [name],
     description: `A recommended place to visit in ${dest.name}.`,
   }));
-  const hotelsForPlaces = hotels.length ? hotels : stateHotels;
+  const hotelsForPlaces = hotels.length ? hotels : destinationScopedHotels;
   const placesToVisit = guide.map((place, index) => ({
     ...place,
     hotels: hotelsForPlace(place, hotelsForPlaces, index * placeHotelLimit, placeHotelLimit).map(hotel => ({
