@@ -21,6 +21,7 @@ import ItineraryPage        from './pages/ItineraryPage.jsx'
 import ReviewsPage          from './pages/ReviewsPage.jsx'
 import WishlistPage         from './pages/WishlistPage.jsx'
 import ChatbotPage          from './pages/ChatbotPage.jsx'
+import TravelPartnersPage   from './pages/TravelPartnersPage.jsx'
 import IndiaPage            from './pages/IndiaPage.jsx'
 import IndiaDetailPage      from './pages/IndiaDetailPage.jsx'
 import NotificationsPage    from './pages/NotificationsPage.jsx'
@@ -84,6 +85,7 @@ export default function App() {
         <Route path="/reviews"       element={<Private><ReviewsPage /></Private>} />
         <Route path="/wishlist"      element={<Private><WishlistPage /></Private>} />
         <Route path="/chatbot"       element={<Private><ChatbotPage /></Private>} />
+        <Route path="/partners"      element={<Private><TravelPartnersPage /></Private>} />
         <Route path="/india"         element={<Private><IndiaPage /></Private>} />
         <Route path="/india/:id"     element={<Private><IndiaDetailPage /></Private>} />
         <Route path="/notifications" element={<Private><NotificationsPage /></Private>} />

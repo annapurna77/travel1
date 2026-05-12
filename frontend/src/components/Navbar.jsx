@@ -53,6 +53,7 @@ export default function Navbar() {
     { to: '/transport', label: 'Travel', icon: '🎫' },
     { to: '/bookings', label: 'Bookings', icon: '📖' },
     { to: '/planner', label: 'Planner', icon: '📋' },
+    { to: '/partners', label: 'Partners', icon: '💬' },
     { to: '/chatbot', label: 'AI Chat', icon: '🤖' },
   ]
 

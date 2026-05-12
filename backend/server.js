@@ -72,7 +72,6 @@ const Hotel = mongoose.model("Hotel", new mongoose.Schema({
   rooms:    { type: Number, default: 10 },
   category: { type: String, default: "Standard" },
   season:   { type: [String], default: ["All"] },
-  awsImageUrl: { type: String, default: "" },
 }, { timestamps: true }));
 
 const Booking = mongoose.model("Booking", new mongoose.Schema({
@@ -116,11 +115,37 @@ const IndiaDest = mongoose.model("IndiaDest", new mongoose.Schema({
   lat:  Number,
   lng:  Number,
   image:       { type: String, default: "" },
-  awsImageUrl: { type: String, default: "" },
   aliases: [String],
   topAttractions: [String],
   avgBudgetPerDay: Number,
   rating: { type: Number, default: 4.0 },
+}, { timestamps: true }));
+
+const TravelPartnerPost = mongoose.model("TravelPartnerPost", new mongoose.Schema({
+  userId: String,
+  destination: { type: String, required: true },
+  startDate: String,
+  endDate: String,
+  travelersNeeded: { type: Number, default: 1 },
+  budget: Number,
+  tripStyle: { type: String, default: "Flexible" },
+  notes: String,
+  status: { type: String, default: "open" },
+  members: { type: [String], default: [] },
+}, { timestamps: true }));
+
+const ChatRoom = mongoose.model("ChatRoom", new mongoose.Schema({
+  postId: mongoose.Schema.Types.ObjectId,
+  title: String,
+  destination: String,
+  memberIds: { type: [String], default: [] },
+}, { timestamps: true }));
+
+const ChatMessage = mongoose.model("ChatMessage", new mongoose.Schema({
+  roomId: mongoose.Schema.Types.ObjectId,
+  senderId: String,
+  senderName: String,
+  text: String,
 }, { timestamps: true }));
 
 async function ensureInitialAdmin() {
@@ -1400,6 +1425,193 @@ app.post("/api/chatbot", async (req, res) => {
     res.json({ reply, results });
   } catch (err) {
     res.status(500).json({ reply: "Sorry, something went wrong. Please try again!", results:{ destinations:[], hotels:[], placesToVisit:[] } });
+  }
+});
+
+// ================================================================
+//  TRAVEL PARTNERS + GROUP CHAT
+// ================================================================
+async function usersById(ids = []) {
+  const uniqueIds = [...new Set(ids.filter(Boolean).map(String))];
+  if (uniqueIds.length === 0) return new Map();
+  const users = await User.find({ _id: { $in: uniqueIds } }).select("name email role");
+  return new Map(users.map(user => [String(user._id), publicUser(user)]));
+}
+
+async function serializePartnerPost(post, currentUserId) {
+  const ownerMap = await usersById([post.userId]);
+  const room = await ChatRoom.findOne({ postId: post._id }).select("_id");
+  const data = post.toObject();
+  return {
+    ...data,
+    createdBy: ownerMap.get(String(post.userId)) || { id: post.userId, name: "Traveler" },
+    membersCount: post.members?.length || 0,
+    hasJoined: post.members?.map(String).includes(String(currentUserId)),
+    roomId: room?._id,
+  };
+}
+
+async function ensureChatRoomForPost(post) {
+  let room = await ChatRoom.findOne({ postId: post._id });
+  if (!room) {
+    room = await ChatRoom.create({
+      postId: post._id,
+      title: `${post.destination} travel group`,
+      destination: post.destination,
+      memberIds: [...new Set([post.userId, ...(post.members || [])].map(String))],
+    });
+  }
+  return room;
+}
+
+app.get("/api/travel-partners", checkLogin, async (req, res) => {
+  try {
+    const { search, status = "open" } = req.query;
+    const query = {};
+    if (status !== "all") query.status = status;
+    if (search) {
+      query.$or = [
+        { destination: { $regex: search, $options: "i" } },
+        { tripStyle: { $regex: search, $options: "i" } },
+        { notes: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    const posts = await TravelPartnerPost.find(query).sort({ createdAt: -1 }).limit(50);
+    res.json({ posts: await Promise.all(posts.map(post => serializePartnerPost(post, req.userId))) });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.post("/api/travel-partners", checkLogin, async (req, res) => {
+  try {
+    const destination = String(req.body.destination || "").trim();
+    if (!destination) return res.status(400).json({ message: "Destination is required" });
+
+    const post = await TravelPartnerPost.create({
+      userId: req.userId,
+      destination,
+      startDate: req.body.startDate || "",
+      endDate: req.body.endDate || "",
+      travelersNeeded: Math.max(1, Number(req.body.travelersNeeded || 1)),
+      budget: Number(req.body.budget || 0),
+      tripStyle: req.body.tripStyle || "Flexible",
+      notes: req.body.notes || "",
+      members: [req.userId],
+    });
+    const room = await ensureChatRoomForPost(post);
+
+    await Notification.create({
+      userId: req.userId,
+      type: "partner_post_created",
+      title: "Travel partner post created",
+      message: `Your ${destination} partner trip is live. Travelers can now join and chat.`,
+      data: { postId: post._id, roomId: room._id },
+    });
+
+    res.status(201).json({ post: await serializePartnerPost(post, req.userId), room });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.post("/api/travel-partners/:id/join", checkLogin, async (req, res) => {
+  try {
+    const post = await TravelPartnerPost.findById(req.params.id);
+    if (!post) return res.status(404).json({ message: "Travel partner post not found" });
+    if (post.status !== "open") return res.status(400).json({ message: "This trip is not open for new partners" });
+
+    const currentUser = String(req.userId);
+    if (!post.members.map(String).includes(currentUser)) {
+      post.members.push(currentUser);
+      await post.save();
+    }
+
+    const room = await ensureChatRoomForPost(post);
+    if (!room.memberIds.map(String).includes(currentUser)) {
+      room.memberIds.push(currentUser);
+      await room.save();
+    }
+
+    if (String(post.userId) !== currentUser) {
+      const joiningUser = await User.findById(req.userId).select("name");
+      await Notification.create({
+        userId: post.userId,
+        type: "partner_joined",
+        title: "New travel partner joined",
+        message: `${joiningUser?.name || "A traveler"} joined your ${post.destination} trip chat.`,
+        data: { postId: post._id, roomId: room._id },
+      });
+    }
+
+    res.json({ post: await serializePartnerPost(post, req.userId), room });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.get("/api/chat/rooms", checkLogin, async (req, res) => {
+  try {
+    const rooms = await ChatRoom.find({ memberIds: String(req.userId) }).sort({ updatedAt: -1 });
+    const userIds = rooms.flatMap(room => room.memberIds || []);
+    const userMap = await usersById(userIds);
+    const roomIds = rooms.map(room => room._id);
+    const lastMessages = await ChatMessage.aggregate([
+      { $match: { roomId: { $in: roomIds } } },
+      { $sort: { createdAt: -1 } },
+      { $group: { _id: "$roomId", message: { $first: "$$ROOT" } } },
+    ]);
+    const lastByRoom = new Map(lastMessages.map(item => [String(item._id), item.message]));
+
+    res.json({
+      rooms: rooms.map(room => ({
+        ...room.toObject(),
+        members: (room.memberIds || []).map(id => userMap.get(String(id)) || { id, name: "Traveler" }),
+        lastMessage: lastByRoom.get(String(room._id)) || null,
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.get("/api/chat/rooms/:id/messages", checkLogin, async (req, res) => {
+  try {
+    const room = await ChatRoom.findById(req.params.id);
+    if (!room) return res.status(404).json({ message: "Chat room not found" });
+    if (!room.memberIds.map(String).includes(String(req.userId))) return res.status(403).json({ message: "Join this trip to chat" });
+
+    const messages = await ChatMessage.find({ roomId: room._id }).sort({ createdAt: 1 }).limit(150);
+    res.json({ messages });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.post("/api/chat/rooms/:id/messages", checkLogin, async (req, res) => {
+  try {
+    const room = await ChatRoom.findById(req.params.id);
+    if (!room) return res.status(404).json({ message: "Chat room not found" });
+    if (!room.memberIds.map(String).includes(String(req.userId))) return res.status(403).json({ message: "Join this trip to chat" });
+
+    const text = String(req.body.text || "").trim();
+    if (!text) return res.status(400).json({ message: "Message cannot be empty" });
+    if (text.length > 1000) return res.status(400).json({ message: "Message is too long" });
+
+    const user = await User.findById(req.userId).select("name");
+    const message = await ChatMessage.create({
+      roomId: room._id,
+      senderId: req.userId,
+      senderName: user?.name || "Traveler",
+      text,
+    });
+    room.updatedAt = new Date();
+    await room.save();
+
+    res.status(201).json({ message });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
   }
 });
 

@@ -45,28 +45,3 @@ MONGO_URL=mongodb://localhost:27017/travelapp
 JWT_SECRET=change-this-secret
 FRONTEND_URL=http://localhost:5173
 ```
-
-## Docker
-
-Run the full app with MongoDB:
-
-```sh
-docker compose up --build
-```
-
-Open:
-
-```text
-http://localhost:8080
-```
-
-## DevOps And AWS
-
-Included:
-
-- Backend Dockerfile
-- Frontend Dockerfile with nginx SPA hosting
-- Local `docker-compose.yml`
-- GitHub Actions CI workflow
-- Manual AWS ECR image push workflow
-- AWS deployment guide in `deploy/aws/README.md`
