@@ -29,6 +29,8 @@ const INDIA_PLACES = [
   { name:'Rishikesh', state:'Uttarakhand', lat:30.0869, lng:78.2676 },
   { name:'Udaipur', state:'Rajasthan', lat:24.5854, lng:73.7125 },
   { name:'Coorg', state:'Karnataka', lat:12.4244, lng:75.7382 },
+  { name:'Mangaluru', state:'Karnataka', lat:12.9141, lng:74.8560 },
+  { name:'Chikmagaluru', state:'Karnataka', lat:13.3161, lng:75.7720 },
   { name:'Spiti Valley', state:'Himachal Pradesh', lat:32.2461, lng:78.0344 },
   { name:'Mysore', state:'Karnataka', lat:12.2958, lng:76.6394 },
   { name:'Leh Ladakh', state:'Ladakh', lat:34.1526, lng:77.5770 },
